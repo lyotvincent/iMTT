@@ -1,0 +1,4 @@
+train_from_base/content里，
+roberta_finetuning_v20241222.py 是 正常用于后续双塔模型训练的，模型在imotifBERT/fine_tuned_model
+
+imotifBERT/fine_tuned_model_TEST 是用来试验添加额外 loss 的结果的，没用
