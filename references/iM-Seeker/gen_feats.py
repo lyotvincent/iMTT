@@ -46,7 +46,7 @@ import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from utils.parameters import *
 
-def gen_features(file):
+def gen_features(file, fold_i):
     with open(file, 'r') as f:
         lines = f.readlines()[1:]
     features = []
@@ -127,7 +127,7 @@ def gen_features(file):
                          G_density_in_two_side_loops,
                          T_density_in_two_side_loops])
     dataset1 = file.split("/")[-1].split(".")[0]
-    with open(f"./33_feats/{dataset1}.csv", 'w') as f:
+    with open(f"./33_feats/fold{fold_i}/{dataset1}.csv", 'w') as f:
         for feature in features:
             f.write('\t'.join(map(str, feature)) + '\n')
     # return features
@@ -158,25 +158,26 @@ def _find_discard_by_imseeker():
 
 
 if __name__ == "__main__":
-    gen_features("./imsearcher_result/positive_train_samples_dataset1.txt")
-    gen_features("./imsearcher_result/positive_train_samples_dataset2.txt")
-    gen_features("./imsearcher_result/positive_train_samples_dataset3.txt")
-    gen_features("./imsearcher_result/positive_train_samples_dataset4.txt")
+    for i in range(5):
+        gen_features(f"./imsearcher_result/fold{i}/positive_train_samples_dataset1.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/positive_train_samples_dataset2.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/positive_train_samples_dataset3.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/positive_train_samples_dataset4.txt", i)
 
-    gen_features("./imsearcher_result/negative_train_samples_dataset1.txt")
-    gen_features("./imsearcher_result/negative_train_samples_dataset2.txt")
-    gen_features("./imsearcher_result/negative_train_samples_dataset3.txt")
-    gen_features("./imsearcher_result/negative_train_samples_dataset4.txt")
+        gen_features(f"./imsearcher_result/fold{i}/negative_train_samples_dataset1.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/negative_train_samples_dataset2.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/negative_train_samples_dataset3.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/negative_train_samples_dataset4.txt", i)
 
-    gen_features("./imsearcher_result/positive_test_samples_dataset1.txt")
-    gen_features("./imsearcher_result/positive_test_samples_dataset2.txt")
-    gen_features("./imsearcher_result/positive_test_samples_dataset3.txt")
-    gen_features("./imsearcher_result/positive_test_samples_dataset4.txt")
+        gen_features(f"./imsearcher_result/fold{i}/positive_test_samples_dataset1.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/positive_test_samples_dataset2.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/positive_test_samples_dataset3.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/positive_test_samples_dataset4.txt", i)
 
-    gen_features("./imsearcher_result/negative_test_samples_dataset1.txt")
-    gen_features("./imsearcher_result/negative_test_samples_dataset2.txt")
-    gen_features("./imsearcher_result/negative_test_samples_dataset3.txt")
-    gen_features("./imsearcher_result/negative_test_samples_dataset4.txt")
+        gen_features(f"./imsearcher_result/fold{i}/negative_test_samples_dataset1.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/negative_test_samples_dataset2.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/negative_test_samples_dataset3.txt", i)
+        gen_features(f"./imsearcher_result/fold{i}/negative_test_samples_dataset4.txt", i)
 
 
     # _find_discard_by_imseeker()

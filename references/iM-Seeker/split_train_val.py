@@ -2,9 +2,12 @@
 import os, sys
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from utils.parameters import *
+
+FOLD_I = 4
 
 positive_file = "distinct_positive_samples_HEK293T.csv"
 negative_file = "distinct_negative_samples_HEK293T.csv"
@@ -21,7 +24,24 @@ negative_samples["labels"] = 0
 data = pd.concat([positive_samples, negative_samples], ignore_index=True)
 
 # Split the dataset into train and test sets with stratification
-train_data, test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
+origin_train_data, origin_test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
+fold_i = FOLD_I
+assert 0 <= fold_i < 5, "fold_i must be between 0 and 4"
+if fold_i == 0:
+    train_data, test_data = origin_train_data, origin_test_data
+else: # fold_i in 1~4
+    folds = list()
+    skf = StratifiedKFold(n_splits=4, shuffle=True, random_state=42)
+
+    for train_idx, val_idx in skf.split(origin_train_data, origin_train_data["labels"]):
+        inner_val = origin_train_data.iloc[val_idx].reset_index(drop=True)
+
+        folds.append(inner_val)
+
+    test_data = folds[fold_i - 1]
+    # 除去当前验证集之后的训练部分（= 3 折） + 原来的 origin_test_data
+    other_folds = [folds[i] for i in range(4) if i != (fold_i - 1)]
+    train_data = pd.concat(other_folds + [origin_test_data], ignore_index=True)
 print(f"train:test = {len(train_data)}:{len(test_data)} = {len(train_data) / len(test_data)}")
 
 # Balance the training dataset by oversampling positive samples
@@ -33,9 +53,9 @@ print(f'upsampled positive samples: {len(positive_train_samples_upsampled)}')
 
 # 输出positive train samples 和 negative train samples 到两个文件, 只输出sequence列
 positive_train_samples_upsampled = positive_train_samples_upsampled.drop(columns=["labels"])
-positive_train_samples_upsampled.to_csv("./origin_data/positive_train_samples.csv", header=False, index=False)
+positive_train_samples_upsampled.to_csv(f"./origin_data/positive_train_samples_fold{FOLD_I}.csv", header=False, index=False)
 negative_train_samples = negative_train_samples.drop(columns=["labels"])
-negative_train_samples.to_csv("./origin_data/negative_train_samples.csv", header=False, index=False)
+negative_train_samples.to_csv(f"./origin_data/negative_train_samples_fold{FOLD_I}.csv", header=False, index=False)
 
 # Balance the validation set
 positive_test_samples = test_data[test_data["labels"] == 1]
@@ -47,9 +67,9 @@ print(f'downsampled negative samples: {len(negative_test_samples)}')
 
 #
 positive_test_samples = positive_test_samples.drop(columns=["labels"])
-positive_test_samples.to_csv("./origin_data/positive_test_samples.csv", header=False, index=False)
+positive_test_samples.to_csv(f"./origin_data/positive_test_samples_fold{FOLD_I}.csv", header=False, index=False)
 negative_test_samples = negative_test_samples.drop(columns=["labels"])
-negative_test_samples.to_csv("./origin_data/negative_test_samples.csv", header=False, index=False)
+negative_test_samples.to_csv(f"./origin_data/negative_test_samples_fold{FOLD_I}.csv", header=False, index=False)
 
 
 

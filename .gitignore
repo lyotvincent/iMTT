@@ -19,10 +19,6 @@ loss_curve.png
 content
 references/transformers
 references/iM-Seeker/*
-!references/iM-Seeker/33_feats
-!references/iM-Seeker/fasta_data
-!references/iM-Seeker/imsearcher_result
-!references/iM-Seeker/origin_data
 !references/iM-Seeker/csv2fasta.py
 !references/iM-Seeker/gen_feats.py
 !references/iM-Seeker/look_model_params.py

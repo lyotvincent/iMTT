@@ -1,23 +1,23 @@
 import torch
 from sklearn.model_selection import train_test_split
 import pandas as pd
-from transformers import RobertaTokenizer, Trainer
-from transformers import RobertaForSequenceClassification, TrainingArguments
+import matplotlib.pyplot as plt
+from transformers import RobertaTokenizer
+from transformers import RobertaForSequenceClassification, Trainer, TrainingArguments
 from datasets import Dataset
+from transformers import DataCollatorWithPadding
 from transformers import TrainerCallback
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, recall_score, precision_score, f1_score
-from sklearn.model_selection import StratifiedKFold
 import random
 import numpy as np
-import os, sys
+import sys, os
 
 from models import CustomRobertaForSequenceClassification
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.parameters import *
-from custom_modules import CustomTrainer
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -31,27 +31,10 @@ def set_seed(seed):
 set_seed(42)
 
 # Load the tokenizer
-tokenizer = RobertaTokenizer.from_pretrained(TOKEN_DIR_BPE)
-
-CTRACT_DICT = {
-    "CCC": 5,
-    "CCCC": 6,
-    "CCCCC": 7,
-    "CCCCCC": 8,
-    "CCCCCCC": 9,
-    "CCCCCCCC": 10,
-    "CCCCCCCCC": 11,
-    "CCCCCCCCCC": 12,
-    "CCCCCCCCCCC": 13,
-    "CCCCCCCCCCCC": 14,
-    "CCCCCCCCCCCCC": 15,
-    "CCCCCCCCCCCCCC": 16,
-    "CCCCCCCCCCCCCCC": 17,
-}
-CTRACT_ID_SET = set(CTRACT_DICT.values())
+tokenizer = RobertaTokenizer.from_pretrained(TOKEN_DIR_BASE)
 
 # Function to load and preprocess the dataset
-def load_and_preprocess_data(samples_path, positive_file, negative_file, fold_i):
+def load_and_preprocess_data(samples_path, positive_file, negative_file):
     # Load positive and negative samples
     positive_samples = pd.read_csv(os.path.join(samples_path, positive_file), header=None, names=["sequence"])
     negative_samples = pd.read_csv(os.path.join(samples_path, negative_file), header=None, names=["sequence"])
@@ -64,24 +47,7 @@ def load_and_preprocess_data(samples_path, positive_file, negative_file, fold_i)
     data = pd.concat([positive_samples, negative_samples], ignore_index=True)
 
     # Split the dataset into train and test sets with stratification
-    origin_train_data, origin_test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
-
-    assert 0 <= fold_i < 5, "fold_i must be between 0 and 4"
-    if fold_i == 0:
-        train_data, test_data = origin_train_data, origin_test_data
-    else: # fold_i in 1~4
-        folds = list()
-        skf = StratifiedKFold(n_splits=4, shuffle=True, random_state=42)
-
-        for train_idx, val_idx in skf.split(origin_train_data, origin_train_data["labels"]):
-            inner_val = origin_train_data.iloc[val_idx].reset_index(drop=True)
-
-            folds.append(inner_val)
-
-        test_data = folds[fold_i - 1]
-        # 除去当前验证集之后的训练部分（= 3 折） + 原来的 origin_test_data
-        other_folds = [folds[i] for i in range(4) if i != (fold_i - 1)]
-        train_data = pd.concat(other_folds + [origin_test_data], ignore_index=True)
+    train_data, test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
 
     # Balance the training dataset by oversampling positive samples
     positive_train_samples = train_data[train_data["labels"] == 1]
@@ -103,7 +69,7 @@ def load_and_preprocess_data(samples_path, positive_file, negative_file, fold_i)
 
     # Tokenize the sequences
     def tokenize_function(examples):
-        tokenized_batch = tokenizer(examples["sequence"], padding="max_length", max_length=MAX_LEN_BPE)
+        tokenized_batch = tokenizer(examples["sequence"], padding="max_length", max_length=MAX_LEN_BASE)
         # 基于attention_mask 创建一个新 loss mask 把 0 index 和 最后一个 1 变成 0
         loss_mask = list()
         for i in tokenized_batch["attention_mask"]:
@@ -112,14 +78,6 @@ def load_and_preprocess_data(samples_path, positive_file, negative_file, fold_i)
             temp[sum(i)-1] = 0.
             loss_mask.append(temp)
         tokenized_batch["loss_mask"] = loss_mask
-        ctract_labels = list()
-        for i in tokenized_batch["input_ids"]:
-            temp = [0.] * MAX_LEN_BPE
-            for j in range(MAX_LEN_BPE):
-                if i[j] in CTRACT_ID_SET:
-                    temp[j] = 1.
-            ctract_labels.append(temp)
-        tokenized_batch["ctract_signs"] = ctract_labels
         return tokenized_batch
 
     tokenized_train_dataset = train_dataset.map(tokenize_function, batched=True)
@@ -128,77 +86,38 @@ def load_and_preprocess_data(samples_path, positive_file, negative_file, fold_i)
     return tokenized_train_dataset, tokenized_test_dataset
 
 # Load and preprocess the dataset
-train_dataset, test_dataset = load_and_preprocess_data(SAMPLES_PATH,
-                                                       "distinct_positive_samples_HEK293T.csv",
-                                                       "distinct_negative_samples_HEK293T.csv",
-                                                       fold_i=4)
-print(f"Train dataset length: {len(train_dataset)}")
-print(f"Test dataset length: {len(test_dataset)}")
-
-class LossHistoryCallback(TrainerCallback):
-    def __init__(self):
-        self.train_losses = []
-        self.eval_losses = []
-        self.epochs1 = []
-        self.epochs2 = []
-
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is not None:
-            if "loss" in logs:
-                self.train_losses.append(logs["loss"])
-                self.epochs1.append(state.epoch)
-                print(">>>>>")
-                print(state)
-                print("<<=>>")
-                print(logs)
-                print("<<<<<")
-            if "eval_loss" in logs:
-                self.eval_losses.append(logs["eval_loss"])
-                self.epochs2.append(state.epoch)
-
-# Initialize the loss history callback
-loss_history_callback = LossHistoryCallback()
+train_dataset, test_dataset = load_and_preprocess_data(SAMPLES_PATH, "distinct_positive_samples_HEK293T.csv", "distinct_negative_samples_HEK293T.csv")
 
 # Define the model
-# from transformers import RobertaConfig
-# config = RobertaConfig(
-#     vocab_size=10_000, # 最早是 1_000
-#     hidden_size=256, # embedding size
-#     max_position_embeddings=128,
-#     num_attention_heads=8,
-#     num_hidden_layers=4,
-#     type_vocab_size=1,
-#     position_embedding_type="relative_key",
-#     num_labels=2,
-# )
-# model = RobertaForSequenceClassification(config=config)
-model = RobertaForSequenceClassification.from_pretrained(PRETRAINED_MODEL_DIR_BPE_4L8HT2, num_labels=2)
+model = CustomRobertaForSequenceClassification.from_pretrained(PRETRAINED_MODEL_DIR_BPE_4L8HT2, num_labels=2)
 
 # Define training arguments
-NUM_EPOCHS = 100
-BATCH_SIZE = 512
+NUM_EPOCHS = 800
+BATCH_SIZE = 512 # 最开始是 Batch size 为 512, epoch 为 400
 training_args = TrainingArguments(
-    output_dir=FINETUNING_MODEL_DIR_BPE_TEST,
+    output_dir=FINETUNING_MODEL_DIR_BASE_TEST,
     overwrite_output_dir=True,
     per_device_train_batch_size=BATCH_SIZE,
     per_device_eval_batch_size=BATCH_SIZE,
     num_train_epochs=NUM_EPOCHS,
-    save_steps=0.5/NUM_EPOCHS,
+    save_steps=0.5/NUM_EPOCHS, # `save_steps` must be a round multiple of `eval_steps`
     save_total_limit=2,
     eval_strategy="steps",
     eval_steps=0.5/NUM_EPOCHS,
     load_best_model_at_end=True,
-    metric_for_best_model="eval_loss",
+    metric_for_best_model="eval_loss_cel",
     greater_is_better=False,
     logging_steps=0.25/NUM_EPOCHS,
-    logging_dir=os.path.join(FINETUNING_MODEL_DIR_BPE_TEST, 'logs'),  # Directory for storing logs
+    logging_dir=os.path.join(FINETUNING_MODEL_DIR_BASE_TEST, 'logs'),  # Directory for storing logs
     report_to="tensorboard",  # Report to TensorBoard
 )
 
 def compute_metrics(pred):
     labels = pred.label_ids
-    preds = pred.predictions.argmax(-1)
-    probs = pred.predictions[:, 1]
+    # loss_cel, loss_bc, loss_4c, loss_adj, logits = pred.predictions
+    loss_cel, ct_num_loss, logits = pred.predictions
+    preds = logits.argmax(-1)
+    probs = logits[:, 1]
 
     acc = accuracy_score(labels, preds)
     auroc = roc_auc_score(labels, probs)
@@ -208,6 +127,8 @@ def compute_metrics(pred):
     f1 = f1_score(labels, preds)
 
     return {
+        'loss_cel': np.mean(loss_cel),
+        'loss_ct_num': np.mean(ct_num_loss),
         'accuracy': acc,
         'auroc': auroc,
         'auprc': auprc,
@@ -229,7 +150,7 @@ trainer = Trainer(
 # Train the model
 trainer.train()
 
-trainer.save_model(FINETUNING_MODEL_DIR_BPE_TEST)
+trainer.save_model(FINETUNING_MODEL_DIR_BASE_TEST)
 
 # 对验证集进行评估
 eval_results = trainer.evaluate(eval_dataset=test_dataset)
@@ -238,6 +159,6 @@ eval_results = trainer.evaluate(eval_dataset=test_dataset)
 print("Evaluation results:", eval_results)
 
 # 保存评估结果
-with open(os.path.join(FINETUNING_MODEL_DIR_BPE_TEST, "best_model_eval_metrics.txt"), "w") as f:
+with open(os.path.join(FINETUNING_MODEL_DIR_BASE_TEST, "best_model_eval_metrics.txt"), "w") as f:
     f.write(str(eval_results))
 

@@ -8,6 +8,7 @@ from datasets import Dataset
 from transformers import DataCollatorWithPadding
 from transformers import TrainerCallback
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, recall_score, precision_score, f1_score
+from sklearn.model_selection import StratifiedKFold
 import random
 import numpy as np
 import sys, os
@@ -34,7 +35,7 @@ set_seed(42)
 tokenizer = RobertaTokenizer.from_pretrained(TOKEN_DIR_BASE)
 
 # Function to load and preprocess the dataset
-def load_and_preprocess_data(samples_path, positive_file, negative_file):
+def load_and_preprocess_data(samples_path, positive_file, negative_file, fold_i):
     # Load positive and negative samples
     positive_samples = pd.read_csv(os.path.join(samples_path, positive_file), header=None, names=["sequence"])
     negative_samples = pd.read_csv(os.path.join(samples_path, negative_file), header=None, names=["sequence"])
@@ -47,7 +48,24 @@ def load_and_preprocess_data(samples_path, positive_file, negative_file):
     data = pd.concat([positive_samples, negative_samples], ignore_index=True)
 
     # Split the dataset into train and test sets with stratification
-    train_data, test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
+    origin_train_data, origin_test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
+
+    assert 0 <= fold_i < 5, "fold_i must be between 0 and 4"
+    if fold_i == 0:
+        train_data, test_data = origin_train_data, origin_test_data
+    else: # fold_i in 1~4
+        folds = list()
+        skf = StratifiedKFold(n_splits=4, shuffle=True, random_state=42)
+
+        for train_idx, val_idx in skf.split(origin_train_data, origin_train_data["labels"]):
+            inner_val = origin_train_data.iloc[val_idx].reset_index(drop=True)
+
+            folds.append(inner_val)
+
+        test_data = folds[fold_i - 1]
+        # 除去当前验证集之后的训练部分（= 3 折） + 原来的 origin_test_data
+        other_folds = [folds[i] for i in range(4) if i != (fold_i - 1)]
+        train_data = pd.concat(other_folds + [origin_test_data], ignore_index=True)
 
     # Balance the training dataset by oversampling positive samples
     positive_train_samples = train_data[train_data["labels"] == 1]
@@ -86,10 +104,25 @@ def load_and_preprocess_data(samples_path, positive_file, negative_file):
     return tokenized_train_dataset, tokenized_test_dataset
 
 # Load and preprocess the dataset
-train_dataset, test_dataset = load_and_preprocess_data(SAMPLES_PATH, "distinct_positive_samples_HEK293T.csv", "distinct_negative_samples_HEK293T.csv")
+train_dataset, test_dataset = load_and_preprocess_data(SAMPLES_PATH,
+                                                       "distinct_positive_samples_HEK293T.csv",
+                                                       "distinct_negative_samples_HEK293T.csv",
+                                                       fold_i=4)
 
 # Define the model
-model = CustomRobertaForSequenceClassification.from_pretrained(PRETRAINED_MODEL_DIR_BPE_4L8HT2, num_labels=2)
+# from transformers import RobertaConfig
+# config = RobertaConfig(
+#     vocab_size=9,
+#     hidden_size=256,
+#     max_position_embeddings=128,
+#     num_attention_heads=8,
+#     num_hidden_layers=4,
+#     type_vocab_size=1,
+#     position_embedding_type="relative_key",
+#     num_labels=2,
+# )
+# model = RobertaForSequenceClassification(config=config)
+model = RobertaForSequenceClassification.from_pretrained(PRETRAINED_MODEL_DIR_BASE, num_labels=2)
 
 # Define training arguments
 NUM_EPOCHS = 800
@@ -105,7 +138,7 @@ training_args = TrainingArguments(
     eval_strategy="steps",
     eval_steps=0.5/NUM_EPOCHS,
     load_best_model_at_end=True,
-    metric_for_best_model="eval_loss_cel",
+    metric_for_best_model="eval_loss",
     greater_is_better=False,
     logging_steps=0.25/NUM_EPOCHS,
     logging_dir=os.path.join(FINETUNING_MODEL_DIR_BASE_TEST, 'logs'),  # Directory for storing logs
@@ -114,10 +147,8 @@ training_args = TrainingArguments(
 
 def compute_metrics(pred):
     labels = pred.label_ids
-    # loss_cel, loss_bc, loss_4c, loss_adj, logits = pred.predictions
-    loss_cel, ct_num_loss, logits = pred.predictions
-    preds = logits.argmax(-1)
-    probs = logits[:, 1]
+    preds = pred.predictions.argmax(-1)
+    probs = pred.predictions[:, 1]
 
     acc = accuracy_score(labels, preds)
     auroc = roc_auc_score(labels, probs)
@@ -127,8 +158,6 @@ def compute_metrics(pred):
     f1 = f1_score(labels, preds)
 
     return {
-        'loss_cel': np.mean(loss_cel),
-        'loss_ct_num': np.mean(ct_num_loss),
         'accuracy': acc,
         'auroc': auroc,
         'auprc': auprc,

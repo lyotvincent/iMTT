@@ -26,6 +26,7 @@ FINETUNING_MODEL_DIR_BASE_TEST = os.path.join(ROOT, "train_from_base", "content"
 
 # * Dual tower model
 SAVED_MODEL_DIR_3D8H256D_P4 = os.path.join(ROOT, "train_two_tower_model", "content", "imotifTower_3D8H256D_P4")
+SAVED_MODEL_DIR_P3 = os.path.join(ROOT, "train_two_tower_model", "content", "imotifTower_P3")
 SAVED_MODEL_DIR_SEMI_V2 = os.path.join(ROOT, "train_two_tower_model", "content", "imotifTower_semi_v2")
 
 SAVED_MODEL_DIR_TEST = os.path.join(ROOT, "train_two_tower_model", "content", "imotifTower_TEST")

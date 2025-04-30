@@ -10,7 +10,6 @@ from datasets import Dataset
 import random
 import numpy as np
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, recall_score, precision_score, f1_score
-from sklearn.model_selection import StratifiedKFold
 import os, sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,7 +33,7 @@ tokenizer2 = RobertaTokenizer.from_pretrained(TOKEN_DIR_BPE)
 
 
 # Function to load and preprocess the dataset
-def load_and_preprocess_data_v1(positive_file, negative_file, fold_i, pseudo_pos_file=None, pseudo_neg_file=None, add_pseudo=False):
+def load_and_preprocess_data_v1(positive_file, negative_file, pseudo_pos_file=None, pseudo_neg_file=None, add_pseudo=False):
     # Load positive and negative samples
     positive_samples = pd.read_csv(os.path.join(SAMPLES_PATH, positive_file), header=None, names=["sequence"])
     negative_samples = pd.read_csv(os.path.join(SAMPLES_PATH, negative_file), header=None, names=["sequence"])
@@ -47,24 +46,7 @@ def load_and_preprocess_data_v1(positive_file, negative_file, fold_i, pseudo_pos
     data = pd.concat([positive_samples, negative_samples], ignore_index=True)
 
     # Split the dataset into train and test sets with stratification
-    origin_train_data, origin_test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
-
-    assert 0 <= fold_i < 5, "fold_i must be between 0 and 4"
-    if fold_i == 0:
-        train_data, test_data = origin_train_data, origin_test_data
-    else: # fold_i in 1~4
-        folds = list()
-        skf = StratifiedKFold(n_splits=4, shuffle=True, random_state=42)
-
-        for train_idx, val_idx in skf.split(origin_train_data, origin_train_data["labels"]):
-            inner_val = origin_train_data.iloc[val_idx].reset_index(drop=True)
-
-            folds.append(inner_val)
-
-        test_data = folds[fold_i - 1]
-        # 除去当前验证集之后的训练部分（= 3 折） + 原来的 origin_test_data
-        other_folds = [folds[i] for i in range(4) if i != (fold_i - 1)]
-        train_data = pd.concat(other_folds + [origin_test_data], ignore_index=True)
+    train_data, test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
     print(f"train:test = {len(train_data)}:{len(test_data)} = {len(train_data) / len(test_data)}")
 
     # Balance the training dataset by oversampling positive samples
@@ -108,7 +90,7 @@ def load_and_preprocess_data_v1(positive_file, negative_file, fold_i, pseudo_pos
 
     return tokenized_train_dataset, tokenized_test_dataset
 
-def load_and_preprocess_data_v2(positive_file, negative_file, fold_i, pseudo_pos_file=None, pseudo_neg_file=None):
+def load_and_preprocess_data_v2(positive_file, negative_file, pseudo_pos_file=None, pseudo_neg_file=None):
     '''
     用positive伪标签数据，补足原本标注数据的正例数量，同时减少标注负例数量，使得加上伪标签负例后，正负例数量相等
     '''
@@ -124,24 +106,7 @@ def load_and_preprocess_data_v2(positive_file, negative_file, fold_i, pseudo_pos
     data = pd.concat([positive_samples, negative_samples], ignore_index=True)
 
     # Split the dataset into train and test sets with stratification
-    origin_train_data, origin_test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
-
-    assert 0 <= fold_i < 5, "fold_i must be between 0 and 4"
-    if fold_i == 0:
-        train_data, test_data = origin_train_data, origin_test_data
-    else: # fold_i in 1~4
-        folds = list()
-        skf = StratifiedKFold(n_splits=4, shuffle=True, random_state=42)
-
-        for train_idx, val_idx in skf.split(origin_train_data, origin_train_data["labels"]):
-            inner_val = origin_train_data.iloc[val_idx].reset_index(drop=True)
-
-            folds.append(inner_val)
-
-        test_data = folds[fold_i - 1]
-        # 除去当前验证集之后的训练部分（= 3 折） + 原来的 origin_test_data
-        other_folds = [folds[i] for i in range(4) if i != (fold_i - 1)]
-        train_data = pd.concat(other_folds + [origin_test_data], ignore_index=True)
+    train_data, test_data = train_test_split(data, test_size=0.2, stratify=data["labels"], random_state=42)
     print(f"train:test = {len(train_data)}:{len(test_data)} = {len(train_data) / len(test_data)}")
 
     # Balance the training dataset by oversampling positive samples
@@ -186,21 +151,13 @@ def load_and_preprocess_data_v2(positive_file, negative_file, fold_i, pseudo_pos
 
     return tokenized_train_dataset, tokenized_test_dataset
 
-FOLD_I = 4
-# train_dataset, test_dataset = load_and_preprocess_data_v1(
-#     "distinct_positive_samples_HEK293T.csv",
-#     "distinct_negative_samples_HEK293T.csv",
-#     pseudo_pos_file="pseudo_positive_samples_HEK293T_v1.csv",
-#     pseudo_neg_file="pseudo_negative_samples_HEK293T_v1.csv",
-#     add_pseudo=True,
-#     fold_i=FOLD_I,
-# )
+
 train_dataset, test_dataset = load_and_preprocess_data_v2(
     "distinct_positive_samples_HEK293T.csv",
     "distinct_negative_samples_HEK293T.csv",
-    pseudo_pos_file="pseudo_positive_samples_HEK293T_v2.csv",
-    pseudo_neg_file="pseudo_negative_samples_HEK293T_v2.csv",
-    fold_i=FOLD_I,
+    "pseudo_positive_samples_HEK293T.csv",
+    "pseudo_negative_samples_HEK293T.csv",
+    # add_pseudo=True,
 )
 print(train_dataset)
 
@@ -219,18 +176,7 @@ config = RobertaConfig(
     position_embedding_type="relative_key",
 )
 
-# D
-# model = DualTowerForSequenceClassification_base(config, is_pretrained=False)
-# MLM
-# model = DualTowerForSequenceClassification_base(config, is_pretrained=True, pretrained_version=1)
-# MLMA
-# model = DualTowerForSequenceClassification_base(config, is_pretrained=True, pretrained_version=2)
-# P3
-# model = DualTowerForSequenceClassification_base(config, is_pretrained=True, pretrained_version=3, fold_i=FOLD_I)
-# P4
-# model = DualTowerForSequenceClassification_base(config, is_pretrained=True, pretrained_version=4, fold_i=FOLD_I)
-# semi
-model = DualTowerForSequenceClassification_semi(config, is_pretrained=True, pretrained_version=5, fold_i=FOLD_I)
+model = DualTowerForSequenceClassification_visual(config, is_pretrained=True, pretrained_version=3)
 # print(model)
 
 # Define training arguments
@@ -256,8 +202,8 @@ training_args = TrainingArguments(
 
 def compute_metrics(pred):
     labels = pred.label_ids
-    preds = pred.predictions.argmax(-1)
-    probs = pred.predictions[:, 1]
+    preds = pred.predictions[0].argmax(-1)
+    probs = pred.predictions[0][:, 1]
 
     acc = accuracy_score(labels, preds)
     auroc = roc_auc_score(labels, probs)

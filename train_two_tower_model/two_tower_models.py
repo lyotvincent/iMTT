@@ -395,7 +395,7 @@ class DualTowerForSequenceClassification_base(nn.Module):
     SAVED_MODEL_DIR_3D8H256D_I
     SAVED_MODEL_DIR_3D8H256D_P4
     '''
-    def __init__(self, config, is_pretrained=False, pretrained_version=2):
+    def __init__(self, config, is_pretrained=False, pretrained_version=2, fold_i=None):
         super().__init__()
         self.config = config
         # ! Encoder
@@ -430,9 +430,9 @@ class DualTowerForSequenceClassification_base(nn.Module):
             elif pretrained_version == 2:
                 self.load_pretrained_weights_v2(PRETRAINED_MODEL_DIR_BASE, PRETRAINED_MODEL_DIR_BPE_4L8HT2)
             elif pretrained_version == 3:
-                self.load_pretrained_weights_v3(FINETUNING_MODEL_DIR_BASE, FINETUNING_MODEL_DIR_BPE_4L8HT2)
+                self.load_pretrained_weights_v3(FINETUNING_MODEL_DIR_BASE+f"_fold{fold_i}", FINETUNING_MODEL_DIR_BPE_4L8HT2+f"_fold{fold_i}")
             elif pretrained_version == 4:
-                self.load_pretrained_weights_v4(FINETUNING_MODEL_DIR_BASE, FINETUNING_MODEL_DIR_BPE_4L8HT2)
+                self.load_pretrained_weights_v4(FINETUNING_MODEL_DIR_BASE+f"_fold{fold_i}", FINETUNING_MODEL_DIR_BPE_4L8HT2+f"_fold{fold_i}")
             else:
                 raise ValueError("Invalid pretrained_version")
 
@@ -539,7 +539,7 @@ class DualTowerForSequenceClassification_base(nn.Module):
             new_state_dict[k] = (pretrained_model_1.classifier.state_dict()[k] + pretrained_model_2.classifier.state_dict()[k]) / 2
         self.classifier.load_state_dict(new_state_dict)
 
-        print("Pretrained weights loaded successfully. (v4)")
+        print("Pretrained weights loaded successfully. (v3)")
 
     def load_pretrained_weights_v4(self, model_path_1, model_path_2):
         pretrained_model_1 = RobertaForSequenceClassification.from_pretrained(model_path_1, num_labels=2)
@@ -629,7 +629,7 @@ class DualTowerForSequenceClassification_semi(nn.Module):
     '''
     用于在已训练好的P4模型上，进一步半监督学习，对应main_v20241228
     '''
-    def __init__(self, config, is_pretrained=True, pretrained_version=5):
+    def __init__(self, config, is_pretrained=True, pretrained_version=5, fold_i=None):
         super().__init__()
         self.config = config
         # ! Encoder
@@ -660,7 +660,7 @@ class DualTowerForSequenceClassification_semi(nn.Module):
 
         if is_pretrained:
             if pretrained_version == 5:
-                self.load_pretrained_weights_v5(SAVED_MODEL_DIR_3D8H256D_P4)
+                self.load_pretrained_weights_v5(SAVED_MODEL_DIR_P3+f"_fold{fold_i}")
             else:
                 raise ValueError("Invalid pretrained_version")
 
